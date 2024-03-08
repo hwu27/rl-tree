@@ -4,8 +4,7 @@
 from __future__ import absolute_import, division, print_function
 
 import numpy as np
-import alt
-import animate
+import parking
 import reverb
 
 import os
@@ -32,25 +31,27 @@ from tf_agents.utils import common
 num_iterations = 20000 # @param {type:"integer"}
 
 initial_collect_steps = 100  # @param {type:"integer"}
-collect_steps_per_iteration =   1# @param {type:"integer"}
+collect_steps_per_iteration =   100 # @param {type:"integer"}
 replay_buffer_max_length = 100000  # @param {type:"integer"}
 
-batch_size = 64  # @param {type:"integer"}
-learning_rate = 1e-3  # @param {type:"number"}
+batch_size = 32  # @param {type:"integer"}
+learning_rate = 1e-4 # @param {type:"number"}
 log_interval = 200  # @param {type:"integer"}
 
 num_eval_episodes = 10  # @param {type:"integer"}
 eval_interval = 1000  # @param {type:"integer"}
 
 # create the environment and wrap it in a tf wrapper
-max_actions = 10
-env = alt.AltruismEnvironment(size=6, max_actions=max_actions)
-tf_env = tf_py_environment.TFPyEnvironment(env)
-tf_env.reset()
+max_actions = 20
+env = parking.ParkingEnvironment(size=10, max_actions=max_actions)
 
-eval_env = tf_env # create an evaluation environment that mirrors the original tf_env for training
+train_py_env = parking.ParkingEnvironment(size=10, max_actions=max_actions)
+eval_py_env = parking.ParkingEnvironment(size=10, max_actions=max_actions)  # create an evaluation environment that mirrors the original env for training
 
-fc_layer_params = (100, 50) # this is going to be the number of neurons in each dense layer 
+train_env = tf_py_environment.TFPyEnvironment(train_py_env)
+eval_env = tf_py_environment.TFPyEnvironment(eval_py_env)
+
+fc_layer_params = (128, 64) # this is going to be the number of neurons in each dense layer 
 
 action_tensor_spec = tensor_spec.from_spec(env.action_spec()) # specifications of action space (left, right, up, down)
 
@@ -92,9 +93,9 @@ train_step_counter = tf.Variable(0)
 # create agent
 agent = dqn_agent.DqnAgent(
     # information about environment
-    tf_env.time_step_spec(), 
+    train_env.time_step_spec(), 
     # possible actioms
-    tf_env.action_spec(),
+    train_env.action_spec(),
     # q network
     q_network = q_net,
     optimizer = optimizer,
@@ -109,35 +110,36 @@ agent.initialize()
 
 # policies for evaluation and one for data collection
 eval_policy = agent.policy
-collect_policty = agent.collect_policy
+collect_policy = agent.collect_policy
 
 # function for evaluation of our RL model
 # " The return is the sum of rewards obtained while running a policy in an environment for an episode. 
 # Several episodes are run, creating an average return."
 
-def compute_avg_return(environment, policy, num_episodes=10):
+def compute_avg_return(environment, policy, num_episodes, max_steps_per_episode=max_actions):
+    total_return = 0.0
+    for _ in range(num_episodes):
+        time_step = environment.reset()
+        episode_return = 0.0
+        step_count = 0
 
-  total_return = 0.0
-  for _ in range(num_episodes):
+        while not time_step.is_last() and step_count < max_steps_per_episode:
+            action_step = policy.action(time_step)
+            time_step = environment.step(action_step.action)
+            episode_return += time_step.reward
+            step_count += 1
 
-    time_step = environment.reset()
-    episode_return = 0.0
+        total_return += episode_return
 
-    while not time_step.is_last():
-      action_step = policy.action(time_step)
-      time_step = environment.step(action_step.action)
-      episode_return += time_step.reward
-    total_return += episode_return
-
-  avg_return = total_return / num_episodes
-  return avg_return.numpy()[0]
+    avg_return = total_return / num_episodes
+    return avg_return.numpy()[0]
 
 
 # here is an example with the random policy
-random_policy = random_tf_policy.RandomTFPolicy(tf_env.time_step_spec(),
-                                                tf_env.action_spec())
+random_policy = random_tf_policy.RandomTFPolicy(train_env.time_step_spec(),
+                                                train_env.action_spec())
 
-print(compute_avg_return(eval_env, random_policy, num_eval_episodes))
+# print(compute_avg_return(eval_env, random_policy, num_eval_episodes))
 
 # we will use reverb to keep track of data in the environment that is to be fed into the agent during training
 table_name = 'uniform_table'
@@ -168,4 +170,69 @@ rb_observer = reverb_utils.ReverbAddTrajectoryObserver(
   sequence_length=2)
 
 # this is a Trajectory tuple that contains the observations, actions, and rewards from the data collection
-agent.collect_data_spec
+#print(agent.collect_data_spec)
+
+
+
+# data collection with PyDriver
+# starts off with random policy
+
+py_driver.PyDriver(
+    env,
+    py_tf_eager_policy.PyTFEagerPolicy(
+      random_policy, use_tf_function=True),
+    [rb_observer],
+    max_steps=initial_collect_steps).run(train_py_env.reset())
+
+dataset = replay_buffer.as_dataset(
+    num_parallel_calls=3,
+    sample_batch_size=batch_size,
+    num_steps=2).prefetch(3)
+
+iterator = iter(dataset)
+
+# Start training
+
+# (Optional) Optimize by wrapping some of the code in a graph using TF function.
+agent.train = common.function(agent.train)
+# Reset the train step.
+agent.train_step_counter.assign(0)
+# Evaluate the agent's policy once before training.
+avg_return = compute_avg_return(eval_env, eval_policy, num_eval_episodes)
+
+returns = [avg_return]
+
+
+# Reset the environment.
+time_step = train_py_env.reset()
+
+# Create a driver to collect experience.
+collect_driver = py_driver.PyDriver(
+    env,
+    py_tf_eager_policy.PyTFEagerPolicy(
+      collect_policy, use_tf_function=True),
+    [rb_observer],
+    max_steps=collect_steps_per_iteration)
+
+for _ in range(num_iterations):
+  # Collect a few steps and save to the replay buffer.
+  time_step, _ = collect_driver.run(time_step)
+
+  # Sample a batch of data from the buffer and update the agent's network.
+  experience, unused_info = next(iterator)
+
+  train_loss = agent.train(experience).loss
+
+  # Checking Q-Values
+  observation = tf.expand_dims(time_step.observation, axis=0)
+  print("Q-values:", agent._q_network(observation))
+
+  step = agent.train_step_counter.numpy()
+
+  if step % log_interval == 0:
+    print('step = {0}: loss = {1}'.format(step, train_loss))
+
+  if step % eval_interval == 0:
+    avg_return = compute_avg_return(eval_env, agent.policy, num_eval_episodes)
+    print('step = {0}: Average Return = {1}'.format(step, avg_return))
+    returns.append(avg_return)
