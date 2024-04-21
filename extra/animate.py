@@ -33,7 +33,7 @@ def animate_frames(frames, actions_per_episode, break_duration=0.5):
         time.sleep(break_duration)  # Speed of frames
         # Check if the episode should end
         
-        if current_action_count == actions_per_episode[episode_number]: 
+        if actions_per_episode[episode_number] and current_action_count == actions_per_episode[episode_number]: 
             # Optionally, show a break or message between episodes
             cv2.destroyAllWindows()  # Close the window
             print(f"Current_action_count: {current_action_count}")

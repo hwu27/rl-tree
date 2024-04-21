@@ -5,7 +5,7 @@ import os
 os.environ['TF_USE_LEGACY_KERAS'] = '1'
 
 import parking
-import animate
+import extra.animate as animate
 
 import tensorflow as tf
 from tf_agents.environments import tf_py_environment
@@ -93,6 +93,7 @@ episodes = 10
 # Evaluating the trained model
 frames = []
 actions_count = 0
+"""
 for _ in range(episodes):
     time_step = eval_env.reset()
     while actions_count != max_actions:
@@ -101,6 +102,19 @@ for _ in range(episodes):
         time_step = eval_env.step(action_step.action)
         frames.append(eval_env.render())
         actions_count+=1
+    actions_count = 0
+"""
+for _ in range(episodes):
+    time_step = eval_env.reset()
+    for _ in range(max_actions+1):
+        if time_step.is_last():
+            print("Episode terminated")
+            break
+        action = agent.collect_policy.action(time_step).action
+        time_step = eval_env.step(action)
+        frame = eval_env.render()
+        frames.append(frame)
+        actions_count += 1
     actions_count = 0
 
 actions_arr = eval_py_env.last_terminated_number_actions()
