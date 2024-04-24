@@ -16,4 +16,3 @@ Goal:
 - "Park" in the adjacent tiles of the tree
 - The highest score possible occurs when the agent occupies every tile of the tree
 
-# rl_tree

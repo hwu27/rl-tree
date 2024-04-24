@@ -5,8 +5,8 @@ import extra.animate as animate
 import tensorflow as tf
 from tf_agents.environments import tf_py_environment
 
-max_actions = 6
-episodes = 1
+max_actions = 4
+episodes = 3
 env = parking.ParkingEnvironment(size=6, max_actions=max_actions)
 tf_env = tf_py_environment.TFPyEnvironment(env)
 tf_env.reset()
@@ -14,7 +14,7 @@ tf_env.reset()
 init_frame = tf_env.render()
 
 frames = [init_frame]
-actions = [0, 0, 3, 3, 3, 3]
+actions = [1, 1, 1, 1] # remember to update max_actions when changing the actions array
 
 for _ in range(episodes):
     time_step = tf_env.reset()

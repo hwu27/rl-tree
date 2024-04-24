@@ -21,6 +21,7 @@ from tf_agents.metrics import tf_metrics
 from tf_agents.networks import sequential
 from tf_agents.policies import py_tf_eager_policy
 from tf_agents.policies import random_tf_policy
+from tf_agents.policies import policy_saver
 from tf_agents.replay_buffers import reverb_replay_buffer
 from tf_agents.replay_buffers import reverb_utils
 from tf_agents.trajectories import trajectory
@@ -30,23 +31,23 @@ from tf_agents.utils import common
 # Basic hyperparameters from DQN tutorial from TensorFlow
 num_iterations = 20000 # @param {type:"integer"}
 
-initial_collect_steps = 100  # @param {type:"integer"}
+initial_collect_steps = 2000  # @param {type:"integer"}
 collect_steps_per_iteration =   100 # @param {type:"integer"}
 replay_buffer_max_length = 100000  # @param {type:"integer"}
 
-batch_size = 32  # @param {type:"integer"}
-learning_rate = 1e-4 # @param {type:"number"}
-log_interval = 200  # @param {type:"integer"}
+batch_size = 64  # @param {type:"integer"}
+learning_rate = 1e-3 # @param {type:"number"}
+log_interval = 100  # @param {type:"integer"}
 
 num_eval_episodes = 10  # @param {type:"integer"}
-eval_interval = 1000  # @param {type:"integer"}
+eval_interval = 100  # @param {type:"integer"}
 
 # create the environment and wrap it in a tf wrapper
-max_actions = 20
-env = parking.ParkingEnvironment(size=10, max_actions=max_actions)
+max_actions = 25
+env = parking.ParkingEnvironment(size=6, max_actions=max_actions)
 
-train_py_env = parking.ParkingEnvironment(size=10, max_actions=max_actions)
-eval_py_env = parking.ParkingEnvironment(size=10, max_actions=max_actions)  # create an evaluation environment that mirrors the original env for training
+train_py_env = parking.ParkingEnvironment(size=6, max_actions=max_actions)
+eval_py_env = parking.ParkingEnvironment(size=6, max_actions=max_actions)  # create an evaluation environment that mirrors the original env for training
 
 train_env = tf_py_environment.TFPyEnvironment(train_py_env)
 eval_env = tf_py_environment.TFPyEnvironment(eval_py_env)
@@ -205,6 +206,9 @@ returns = [avg_return]
 
 # Reset the environment.
 time_step = train_py_env.reset()
+global_step = tf.Variable(0) # global step counter over multiple training session
+policy_dir = 'policy'
+tf_policy_saver = policy_saver.PolicySaver(agent.policy)
 
 # Create a driver to collect experience.
 collect_driver = py_driver.PyDriver(
@@ -214,25 +218,43 @@ collect_driver = py_driver.PyDriver(
     [rb_observer],
     max_steps=collect_steps_per_iteration)
 
+checkpoint_dir = 'checkpoint'
+train_checkpointer = common.Checkpointer(
+    ckpt_dir=checkpoint_dir,
+    max_to_keep=1,
+    agent=agent,
+    policy=agent.policy,
+    replay_buffer=replay_buffer,
+    global_step=global_step
+)
+
+#train_checkpointer.initialize_or_restore()
+
 for _ in range(num_iterations):
-  # Collect a few steps and save to the replay buffer.
-  time_step, _ = collect_driver.run(time_step)
+    # Collect a few steps and save to the replay buffer.
+    time_step, _ = collect_driver.run(time_step)
 
-  # Sample a batch of data from the buffer and update the agent's network.
-  experience, unused_info = next(iterator)
+    # Sample a batch of data from the buffer and update the agent's network.
+    experience, unused_info = next(iterator)
 
-  train_loss = agent.train(experience).loss
+    train_loss = agent.train(experience).loss
 
-  # Checking Q-Values
-  observation = tf.expand_dims(time_step.observation, axis=0)
-  print("Q-values:", agent._q_network(observation))
+    # Checking Q-Values
+    observation = tf.expand_dims(time_step.observation, axis=0)
+    #print("Q-values:", agent._q_network(observation))
 
-  step = agent.train_step_counter.numpy()
+    step = agent.train_step_counter.numpy() # this step is just for the current training session
+    global_step.assign_add(1)
 
-  if step % log_interval == 0:
-    print('step = {0}: loss = {1}'.format(step, train_loss))
+    if step % log_interval == 0:
+        train_checkpointer.save(global_step=step)
+        tf_policy_saver.save(policy_dir)
+        print('step = {0}: loss = {1}'.format(step, train_loss))
 
-  if step % eval_interval == 0:
-    avg_return = compute_avg_return(eval_env, agent.policy, num_eval_episodes)
-    print('step = {0}: Average Return = {1}'.format(step, avg_return))
-    returns.append(avg_return)
+    if step % eval_interval == 0:
+        avg_return = compute_avg_return(eval_env, agent.policy, num_eval_episodes)
+        print('step = {0}: Average Return = {1}'.format(step, avg_return))
+        returns.append(avg_return)
+
+
+# REMEMBER TO USE THIS: WRAPT_DISABLE_EXTENSIONS=1 python3 dqn_model.py 
