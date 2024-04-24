@@ -4,14 +4,14 @@ import os
 # Keep using keras-2 (tf-keras) rather than keras-3 (keras).
 os.environ['TF_USE_LEGACY_KERAS'] = '1'
 
-import parking
+import rl_tree
 import extra.animate as animate
 
 import tensorflow as tf
 from tf_agents.environments import tf_py_environment
 
 max_actions = 25
-eval_py_env = parking.ParkingEnvironment(size=6, max_actions=max_actions)
+eval_py_env = rl_tree.ParkingEnvironment(size=6, max_actions=max_actions)
 eval_env = tf_py_environment.TFPyEnvironment(eval_py_env)
 
 eval_env.reset()

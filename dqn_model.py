@@ -4,7 +4,7 @@
 from __future__ import absolute_import, division, print_function
 
 import numpy as np
-import parking
+import rl_tree
 import reverb
 
 import os
@@ -44,10 +44,10 @@ eval_interval = 100  # @param {type:"integer"}
 
 # create the environment and wrap it in a tf wrapper
 max_actions = 25
-env = parking.ParkingEnvironment(size=6, max_actions=max_actions)
+env = rl_tree.ParkingEnvironment(size=6, max_actions=max_actions)
 
-train_py_env = parking.ParkingEnvironment(size=6, max_actions=max_actions)
-eval_py_env = parking.ParkingEnvironment(size=6, max_actions=max_actions)  # create an evaluation environment that mirrors the original env for training
+train_py_env = rl_tree.ParkingEnvironment(size=6, max_actions=max_actions)
+eval_py_env = rl_tree.ParkingEnvironment(size=6, max_actions=max_actions)  # create an evaluation environment that mirrors the original env for training
 
 train_env = tf_py_environment.TFPyEnvironment(train_py_env)
 eval_env = tf_py_environment.TFPyEnvironment(eval_py_env)

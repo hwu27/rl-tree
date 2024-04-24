@@ -1,5 +1,5 @@
 import numpy as np
-import parking
+import rl_tree
 import extra.animate as animate
 
 import tensorflow as tf
@@ -7,7 +7,7 @@ from tf_agents.environments import tf_py_environment
 
 max_actions = 4
 episodes = 3
-env = parking.ParkingEnvironment(size=6, max_actions=max_actions)
+env = rl_tree.ParkingEnvironment(size=6, max_actions=max_actions)
 tf_env = tf_py_environment.TFPyEnvironment(env)
 tf_env.reset()
 
